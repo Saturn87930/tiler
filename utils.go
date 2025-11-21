@@ -145,16 +145,44 @@ func loadCollection(path string) orb.Collection {
 		log.Fatalf("unable to read file: %v", err)
 	}
 
-	fc, err := geojson.UnmarshalFeatureCollection(data)
-	if err != nil {
-		log.Fatalf("unable to unmarshal feature: %v", err)
-	}
-
 	var collection orb.Collection
-	for _, f := range fc.Features {
-		collection = append(collection, f.Geometry)
+
+	// 尝试解析标准的 FeatureCollection
+	fc, err := geojson.UnmarshalFeatureCollection(data)
+	if err == nil {
+		for _, f := range fc.Features {
+			collection = append(collection, f.Geometry)
+		}
+		return collection
 	}
 
+	// 尝试解析 OpenStreetMap Nominatim 格式 (JSON 数组)
+	var nominatimResults []struct {
+		GeoJSON json.RawMessage `json:"geojson"`
+	}
+	err = json.Unmarshal(data, &nominatimResults)
+	if err == nil && len(nominatimResults) > 0 {
+		for _, result := range nominatimResults {
+			if len(result.GeoJSON) > 0 {
+				geom, err := geojson.UnmarshalGeometry(result.GeoJSON)
+				if err == nil {
+					collection = append(collection, geom.Geometry())
+				}
+			}
+		}
+		if len(collection) > 0 {
+			return collection
+		}
+	}
+
+	// 尝试解析单个 Geometry
+	geom, err := geojson.UnmarshalGeometry(data)
+	if err == nil {
+		collection = append(collection, geom.Geometry())
+		return collection
+	}
+
+	log.Fatalf("unable to parse GeoJSON file: %s, tried FeatureCollection, Nominatim array, and Geometry formats", path)
 	return collection
 }
 
