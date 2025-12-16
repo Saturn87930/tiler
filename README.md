@@ -16,7 +16,8 @@ A well-polished tile downloader
 - 支持文件和MBTILES两种存储方式
 
 - 支持自定义瓦片地址
-
+## 打包
+ go build -ldflags="-s -w" -o tiler.exe
 ## 使用方式
 
 1. 下载源代码在对应的平台上自己编译
@@ -58,3 +59,11 @@ A well-polished tile downloader
   > url = "https://t0.tianditu.gov.cn/DataServer?T=cva_w&x={x}&y={y}&l={z}&tk=75f0434f240669f4a2df6359275146d2"
 
 > 工具已经处理了天地图429限制，请合理使用！！！
+
+## 获取geojson
+### 阿里
+https://datav.aliyun.com/portal/school/atlas/area_selector
+### OpenStreetMap
+https://nominatim.openstreetmap.org/search?q=%E6%AD%A6%E6%B1%89%E6%B1%9F%E6%B1%89%E5%8C%BA%E5%89%8D%E8%BF%9B%E8%A1%97%E9%81%93&polygon_geojson=1&format=jsonv2
+
+把里面的q换成具体的关键字，结果检查"display_name":"前进街道, 江汉区, 武汉市, 湖北省, 中国" 看是否是自己需要的，然后将数据保存到geojson文件中

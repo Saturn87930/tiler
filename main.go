@@ -1,17 +1,21 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/shiena/ansicolor"
 	log "github.com/sirupsen/logrus"
 
 	nested "github.com/antonfisher/nested-logrus-formatter"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 	"github.com/spf13/viper"
 )
 
@@ -63,6 +67,35 @@ func initConf(cfgFile string) {
 	viper.SetDefault("task.workers", 4)
 	viper.SetDefault("task.savepipe", 1)
 	viper.SetDefault("task.timedelay", 0)
+	viper.SetDefault("log.enable", false)
+	viper.SetDefault("log.file", "tiler.log")
+	viper.SetDefault("log.level", "info")
+}
+
+// setupLogger 设置日志输出
+func setupLogger() {
+	// 设置日志级别
+	levelStr := viper.GetString("log.level")
+	level, err := log.ParseLevel(levelStr)
+	if err != nil {
+		level = log.InfoLevel
+	}
+	log.SetLevel(level)
+
+	// 如果启用日志文件
+	if viper.GetBool("log.enable") {
+		logFile := viper.GetString("log.file")
+		file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			log.Warnf("Failed to open log file %s: %v, logging to stdout only", logFile, err)
+			return
+		}
+
+		// 同时输出到文件和控制台
+		mw := io.MultiWriter(ansicolor.NewAnsiColorWriter(os.Stdout), file)
+		log.SetOutput(mw)
+		log.Infof("Logging to file: %s", logFile)
+	}
 }
 
 type TileData struct {
@@ -93,7 +126,7 @@ func insertTiles(db *sql.Tx, tiles []TileData) error {
 
 func testDbTask() {
 
-	db, err := sql.Open("sqlite3", "./tiles.db")
+	db, err := sql.Open("sqlite", "./tiles.db")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -175,6 +208,7 @@ func main() {
 		cf = "conf.toml"
 	}
 	initConf(cf)
+	setupLogger() // 设置日志输出
 	start := time.Now()
 	tm := TileMap{
 		Name:   viper.GetString("tm.name"),
@@ -210,7 +244,21 @@ func main() {
 	}
 	task := NewTask(layers, tm)
 	fmt.Println(task.workerCount)
-	task.Download()
+
+	// 设置信号处理，捕获 Ctrl+C 等中断信号
+	ctx, cancel := context.WithCancel(context.Background())
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		log.Warn("Received interrupt signal, saving progress...")
+		task.SaveProgressOnExit() // 保存进度
+		cancel()
+		os.Exit(0)
+	}()
+
+	task.DownloadWithContext(ctx)
 	secs := time.Since(start).Seconds()
 	log.Printf("\n%.3fs finished...", secs)
 }
